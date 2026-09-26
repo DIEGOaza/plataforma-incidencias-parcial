@@ -11,6 +11,8 @@ namespace TPARCIAL.Controllers;
 public class OperacionesController(
     ApplicationDbContext context,
     IIncidenciaSearch buscador,
+    IIncidenciasCache cache,
+    INotificadorIncidencias notificador,
     ILogger<OperacionesController> logger) : Controller
 {
     // GET: /Operaciones/Incidencias?busqueda=texto
@@ -19,19 +21,11 @@ public class OperacionesController(
         busqueda = busqueda?.Trim();
         ViewData["Busqueda"] = busqueda;
 
-        // Sin texto: listado habitual, solo con incidencias Abiertas.
+        // Sin texto: listado general de incidencias Abiertas, cacheado en Redis.
         if (string.IsNullOrEmpty(busqueda))
-        {
-            var abiertas = await context.Incidencias
-                .Include(i => i.Estacion)
-                .Where(i => i.Estado == EstadoIncidencia.Abierta)
-                .OrderByDescending(i => i.FechaReporte)
-                .AsNoTracking()
-                .ToListAsync(ct);
+            return View(await cache.ObtenerListadoAsync(CargarAbiertasAsync, ct));
 
-            return View(abiertas);
-        }
-
+        // Con texto: se consulta Algolia directamente, sin pasar por la caché.
         IReadOnlyList<int> ids;
         try
         {
@@ -71,8 +65,11 @@ public class OperacionesController(
             incidencia.Estado = EstadoIncidencia.Cerrada;
             await context.SaveChangesAsync(ct);
 
-            // 2. Publicar IncidenciaActualizada { Id, Estado } en PieHost (y SignalR).
-            //    Sin el token de la petición: el cierre ya está guardado y el evento debe salir igualmente.
+            // El cierre ya está guardado: lo que sigue no se cancela aunque el cliente corte la petición.
+            // 2. Invalidar la clave del listado en Redis antes de volver a consultarlo.
+            await cache.InvalidarAsync();
+
+            // 3. Publicar IncidenciaActualizada { Id, Estado } en PieHost (y SignalR).
             await notificador.NotificarAsync(new IncidenciaActualizada(incidencia.Id, incidencia.Estado.ToString()));
         }
 
@@ -80,30 +77,26 @@ public class OperacionesController(
     }
 
     // GET: /Operaciones/EstadoIncidencias
-    // Estado vigente del listado; el cliente lo consulta al reconectar el WebSocket.
+    // Estado vigente (directo de la BD) de las incidencias abiertas; el cliente lo consulta al reconectar el WebSocket.
     [HttpGet]
     public async Task<IActionResult> EstadoIncidencias(CancellationToken ct)
     {
-        var incidencias = await context.Incidencias
-            .AsNoTracking()
-            .OrderByDescending(i => i.FechaReporte)
-            .Select(i => new
-            {
-                i.Id,
-                Estacion = i.Estacion!.Nombre,
-                i.Descripcion,
-                Estado = i.Estado.ToString(),
-                i.FechaReporte
-            })
-            .ToListAsync(ct);
-
-        return Json(incidencias);
+        var abiertas = await CargarAbiertasAsync(ct);
+        return Json(abiertas.Select(i => new
+        {
+            i.Id,
+            Estacion = i.Estacion?.Nombre,
+            i.Descripcion,
+            Estado = i.Estado.ToString(),
+            i.FechaReporte
+        }));
     }
 
     // Proyección sin ciclos (Estacion -> Incidencias) para poder serializarla en Redis.
-    private Task<List<Incidencia>> CargarListadoAsync(CancellationToken ct) =>
+    private Task<List<Incidencia>> CargarAbiertasAsync(CancellationToken ct) =>
         context.Incidencias
             .AsNoTracking()
+            .Where(i => i.Estado == EstadoIncidencia.Abierta)
             .OrderByDescending(i => i.FechaReporte)
             .Select(i => new Incidencia
             {

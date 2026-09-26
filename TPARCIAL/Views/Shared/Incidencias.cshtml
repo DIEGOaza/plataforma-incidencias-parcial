@@ -6,9 +6,10 @@
 @{
     ViewData["Title"] = "Incidencias";
     var busqueda = ViewData["Busqueda"] as string;
+    var pieHost = PieHost.Value;
 }
 
-<h1>Incidencias abiertas encontradas</h1>
+<h1>Incidencias abiertas en tiempo real</h1>
 
 <form asp-controller="Operaciones" asp-action="Incidencias" method="get" class="row g-2 my-3" role="search">
     <div class="col-sm-8 col-md-6">
@@ -79,6 +80,7 @@
             evento = IncidenciasHub.EventoIncidencia,
             estadoUrl = Url.Action("EstadoIncidencias", "Operaciones"),
             cerrarUrl = Url.Action("Cerrar", "Operaciones"),
+            busquedaActiva = !string.IsNullOrEmpty(busqueda),
             pieHost = pieHost.ClienteHabilitado
                 ? new { url = pieHost.UrlCliente }
                 : null

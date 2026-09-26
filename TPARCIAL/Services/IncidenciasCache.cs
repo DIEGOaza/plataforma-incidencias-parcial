@@ -14,13 +14,13 @@ public interface IIncidenciasCache
 }
 
 /// <summary>
-/// Caché distribuida (Redis) del listado de incidencias con degradación elegante:
+/// Caché distribuida (Redis, TTL 60 s) del listado general de incidencias abiertas con degradación elegante:
 /// cualquier fallo de Redis se registra y la aplicación sigue trabajando contra la base de datos.
 /// </summary>
 public class IncidenciasCache(IDistributedCache cache, ILogger<IncidenciasCache> logger) : IIncidenciasCache
 {
-    private const string ClaveListado = "incidencias:listado";
-    private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(10);
+    private const string ClaveListado = "incidencias:abiertas";
+    private static readonly TimeSpan Ttl = TimeSpan.FromSeconds(60);
 
     // Tras un fallo, se deja de intentar usar Redis durante este tiempo para no penalizar cada petición.
     private static readonly TimeSpan PausaTrasFallo = TimeSpan.FromSeconds(30);
@@ -45,7 +45,10 @@ public class IncidenciasCache(IDistributedCache cache, ILogger<IncidenciasCache>
                 {
                     var cacheadas = JsonSerializer.Deserialize<List<Incidencia>>(datos);
                     if (cacheadas is not null)
+                    {
+                        logger.LogInformation("Listado de incidencias abiertas leído desde REDIS (clave {Clave}, {Total} registros).", ClaveListado, cacheadas.Count);
                         return cacheadas;
+                    }
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -55,6 +58,7 @@ public class IncidenciasCache(IDistributedCache cache, ILogger<IncidenciasCache>
         }
 
         var incidencias = await cargarDesdeBd(ct);
+        logger.LogInformation("Listado de incidencias abiertas leído desde la BASE DE DATOS ({Total} registros).", incidencias.Count);
 
         if (!RedisEnPausa)
         {
@@ -77,6 +81,7 @@ public class IncidenciasCache(IDistributedCache cache, ILogger<IncidenciasCache>
         {
             // Se intenta aunque Redis esté "en pausa": una entrada obsoleta es peor que un intento fallido.
             await cache.RemoveAsync(ClaveListado, ct);
+            logger.LogInformation("Clave {Clave} invalidada en Redis.", ClaveListado);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
