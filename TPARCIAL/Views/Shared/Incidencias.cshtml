@@ -1,35 +1,88 @@
+@using Microsoft.Extensions.Options
+@using TPARCIAL.Hubs
+@using TPARCIAL.Services
 @model IEnumerable<TPARCIAL.Models.Incidencia>
+@inject IOptions<PieHostOptions> PieHost
 @{
     ViewData["Title"] = "Incidencias";
+    var busqueda = ViewData["Busqueda"] as string;
 }
 
-<h1>Incidencias</h1>
+<h1>Incidencias abiertas encontradas</h1>
 
-@if (!Model.Any())
+<form asp-controller="Operaciones" asp-action="Incidencias" method="get" class="row g-2 my-3" role="search">
+    <div class="col-sm-8 col-md-6">
+        <input type="search" name="busqueda" value="@busqueda" class="form-control"
+               placeholder="Buscar por nombre de estación o descripción" aria-label="Buscar incidencias" />
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-primary">Buscar</button>
+        @if (!string.IsNullOrEmpty(busqueda))
+        {
+            <a asp-controller="Operaciones" asp-action="Incidencias" class="btn btn-outline-secondary">Limpiar</a>
+        }
+    </div>
+</form>
+
+@if (ViewData["ErrorBusqueda"] is string error)
 {
-    <p class="text-muted">No hay incidencias para mostrar.</p>
+    <div class="alert alert-warning" role="alert">@error</div>
 }
-else
-{
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Estación</th>
-                <th>Descripción</th>
-                <th>Estado</th>
-                <th>Fecha de reporte</th>
+
+<div id="notificaciones-incidencias" class="my-3" aria-live="polite"></div>
+
+<p id="sin-incidencias" class="text-muted @(Model.Any() ? "d-none" : "")">No hay incidencias para mostrar.</p>
+
+<table id="tabla-incidencias" class="table table-striped @(Model.Any() ? "" : "d-none")">
+    <thead>
+        <tr>
+            <th>Estación</th>
+            <th>Descripción</th>
+            <th>Estado</th>
+            <th>Fecha de reporte</th>
+            <th>Acciones</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model)
+        {
+            <tr data-incidencia-id="@item.Id">
+                <td data-campo="estacion">@item.Estacion?.Nombre</td>
+                <td data-campo="descripcion">@item.Descripcion</td>
+                <td data-campo="estado">@item.Estado</td>
+                <td data-campo="fecha">@item.FechaReporte.ToString("dd/MM/yyyy HH:mm")</td>
+                <td data-campo="acciones">
+                    @if (item.Estado == TPARCIAL.Models.EstadoIncidencia.Abierta)
+                    {
+                        <form asp-controller="Operaciones" asp-action="Cerrar" asp-route-id="@item.Id" method="post" class="d-inline">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Cerrar</button>
+                        </form>
+                    }
+                </td>
             </tr>
-        </thead>
-        <tbody>
-            @foreach (var item in Model)
-            {
-                <tr>
-                    <td>@item.Estacion?.Nombre</td>
-                    <td>@item.Descripcion</td>
-                    <td>@item.Estado</td>
-                    <td>@item.FechaReporte.ToString("dd/MM/yyyy HH:mm")</td>
-                </tr>
-            }
-        </tbody>
-    </table>
+        }
+    </tbody>
+</table>
+
+@* Token antiforgery para los botones "Cerrar" que genera el script al refrescar la tabla. *@
+<div id="antiforgery-cerrar" hidden>@Html.AntiForgeryToken()</div>
+
+@section Scripts {
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"
+            integrity="sha384-mU1xC5yC2LldSW74Rj1Ax8wPiLw/28V5eh51uKJMlBbRVsOtUYd4xyzNsgIAJARB"
+            crossorigin="anonymous"></script>
+    @* Solo se envían al navegador datos públicos: nunca el ApiSecret de PieHost. *@
+    <script id="config-tiempo-real" type="application/json">
+        @Json.Serialize(new
+        {
+            hubUrl = IncidenciasHub.Ruta,
+            evento = IncidenciasHub.EventoIncidencia,
+            estadoUrl = Url.Action("EstadoIncidencias", "Operaciones"),
+            cerrarUrl = Url.Action("Cerrar", "Operaciones"),
+            pieHost = pieHost.ClienteHabilitado
+                ? new { url = pieHost.UrlCliente }
+                : null
+        })
+    </script>
+    <script src="~/js/incidencias-tiempo-real.js" asp-append-version="true"></script>
 }
