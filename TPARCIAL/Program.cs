@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using TPARCIAL.Data;
-using TPARCIAL.Hubs;
 using TPARCIAL.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,12 +16,9 @@ builder.Services.AddDefaultIdentity<IdentityUser>(options => options.SignIn.Requ
     .AddEntityFrameworkStores<ApplicationDbContext>();
 builder.Services.AddControllersWithViews();
 
-// Tiempo real: SignalR (WebSockets) y, opcionalmente, PieHost.
-// El ApiSecret de PieHost se lee de user-secrets o de la variable de entorno PieHost__ApiSecret.
-builder.Services.AddSignalR();
-builder.Services.Configure<PieHostOptions>(builder.Configuration.GetSection(PieHostOptions.Seccion));
-builder.Services.AddHttpClient(NotificadorIncidencias.NombreHttpClient, c => c.Timeout = TimeSpan.FromSeconds(5));
-builder.Services.AddSingleton<INotificadorIncidencias, NotificadorIncidencias>();
+// Algolia: la AdminApiKey se obtiene de user-secrets o de la variable de entorno Algolia__AdminApiKey.
+builder.Services.Configure<AlgoliaOptions>(builder.Configuration.GetSection(AlgoliaOptions.Seccion));
+builder.Services.AddSingleton<IIncidenciaSearch, AlgoliaIncidenciaSearch>();
 
 var app = builder.Build();
 
@@ -30,7 +27,22 @@ if (app.Environment.IsDevelopment())
 {
     app.UseMigrationsEndPoint();
     using var scope = app.Services.CreateScope();
-    scope.ServiceProvider.GetRequiredService<ApplicationDbContext>().Database.Migrate();
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    db.Database.Migrate();
+
+    // Publica las incidencias en el índice de Algolia si hay credenciales configuradas.
+    if (app.Services.GetRequiredService<IOptions<AlgoliaOptions>>().Value.EstaConfigurado)
+    {
+        try
+        {
+            var incidencias = await db.Incidencias.Include(i => i.Estacion).AsNoTracking().ToListAsync();
+            await app.Services.GetRequiredService<IIncidenciaSearch>().SincronizarAsync(incidencias);
+        }
+        catch (Exception ex)
+        {
+            app.Logger.LogWarning(ex, "No se pudo sincronizar el índice de Algolia.");
+        }
+    }
 }
 else
 {

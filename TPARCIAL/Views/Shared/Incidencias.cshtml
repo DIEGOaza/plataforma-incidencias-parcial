@@ -5,10 +5,29 @@
 @inject IOptions<PieHostOptions> PieHost
 @{
     ViewData["Title"] = "Incidencias";
-    var pieHost = PieHost.Value;
+    var busqueda = ViewData["Busqueda"] as string;
 }
 
-<h1>Incidencias abiertas en tiempo real</h1>
+<h1>Incidencias abiertas encontradas</h1>
+
+<form asp-controller="Operaciones" asp-action="Incidencias" method="get" class="row g-2 my-3" role="search">
+    <div class="col-sm-8 col-md-6">
+        <input type="search" name="busqueda" value="@busqueda" class="form-control"
+               placeholder="Buscar por nombre de estación o descripción" aria-label="Buscar incidencias" />
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-primary">Buscar</button>
+        @if (!string.IsNullOrEmpty(busqueda))
+        {
+            <a asp-controller="Operaciones" asp-action="Incidencias" class="btn btn-outline-secondary">Limpiar</a>
+        }
+    </div>
+</form>
+
+@if (ViewData["ErrorBusqueda"] is string error)
+{
+    <div class="alert alert-warning" role="alert">@error</div>
+}
 
 <div id="notificaciones-incidencias" class="my-3" aria-live="polite"></div>
 
