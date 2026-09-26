@@ -1,0 +1,35 @@
+@model IEnumerable<TPARCIAL.Models.Incidencia>
+@{
+    ViewData["Title"] = "Incidencias";
+}
+
+<h1>Incidencias</h1>
+
+@if (!Model.Any())
+{
+    <p class="text-muted">No hay incidencias para mostrar.</p>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Estación</th>
+                <th>Descripción</th>
+                <th>Estado</th>
+                <th>Fecha de reporte</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in Model)
+            {
+                <tr>
+                    <td>@item.Estacion?.Nombre</td>
+                    <td>@item.Descripcion</td>
+                    <td>@item.Estado</td>
+                    <td>@item.FechaReporte.ToString("dd/MM/yyyy HH:mm")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
