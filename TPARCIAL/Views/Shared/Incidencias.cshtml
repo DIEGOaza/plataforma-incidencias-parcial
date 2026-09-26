@@ -1,35 +1,55 @@
+@using Microsoft.Extensions.Options
+@using TPARCIAL.Hubs
+@using TPARCIAL.Services
 @model IEnumerable<TPARCIAL.Models.Incidencia>
+@inject IOptions<PieHostOptions> PieHost
 @{
     ViewData["Title"] = "Incidencias";
+    var pieHost = PieHost.Value;
 }
 
 <h1>Incidencias</h1>
 
-@if (!Model.Any())
-{
-    <p class="text-muted">No hay incidencias para mostrar.</p>
-}
-else
-{
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Estación</th>
-                <th>Descripción</th>
-                <th>Estado</th>
-                <th>Fecha de reporte</th>
+<div id="notificaciones-incidencias" class="my-3" aria-live="polite"></div>
+
+<p id="sin-incidencias" class="text-muted @(Model.Any() ? "d-none" : "")">No hay incidencias para mostrar.</p>
+
+<table id="tabla-incidencias" class="table table-striped @(Model.Any() ? "" : "d-none")">
+    <thead>
+        <tr>
+            <th>Estación</th>
+            <th>Descripción</th>
+            <th>Estado</th>
+            <th>Fecha de reporte</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model)
+        {
+            <tr data-incidencia-id="@item.Id">
+                <td data-campo="estacion">@item.Estacion?.Nombre</td>
+                <td data-campo="descripcion">@item.Descripcion</td>
+                <td data-campo="estado">@item.Estado</td>
+                <td data-campo="fecha">@item.FechaReporte.ToString("dd/MM/yyyy HH:mm")</td>
             </tr>
-        </thead>
-        <tbody>
-            @foreach (var item in Model)
-            {
-                <tr>
-                    <td>@item.Estacion?.Nombre</td>
-                    <td>@item.Descripcion</td>
-                    <td>@item.Estado</td>
-                    <td>@item.FechaReporte.ToString("dd/MM/yyyy HH:mm")</td>
-                </tr>
-            }
-        </tbody>
-    </table>
+        }
+    </tbody>
+</table>
+
+@section Scripts {
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"
+            integrity="sha384-mU1xC5yC2LldSW74Rj1Ax8wPiLw/28V5eh51uKJMlBbRVsOtUYd4xyzNsgIAJARB"
+            crossorigin="anonymous"></script>
+    @* Solo se envían al navegador datos públicos: nunca el ApiSecret de PieHost. *@
+    <script id="config-tiempo-real" type="application/json">
+        @Json.Serialize(new
+        {
+            hubUrl = IncidenciasHub.Ruta,
+            evento = IncidenciasHub.EventoIncidencia,
+            pieHost = pieHost.ClienteHabilitado
+                ? new { clusterId = pieHost.ClusterId, apiKey = pieHost.ApiKey, canal = pieHost.Canal }
+                : null
+        })
+    </script>
+    <script src="~/js/incidencias-tiempo-real.js" asp-append-version="true"></script>
 }
