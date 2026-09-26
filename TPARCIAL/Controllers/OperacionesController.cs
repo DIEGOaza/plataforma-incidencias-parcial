@@ -19,16 +19,17 @@ public class OperacionesController(
         busqueda = busqueda?.Trim();
         ViewData["Busqueda"] = busqueda;
 
-        // Sin texto: listado habitual.
+        // Sin texto: listado habitual, solo con incidencias Abiertas.
         if (string.IsNullOrEmpty(busqueda))
         {
-            var todas = await context.Incidencias
+            var abiertas = await context.Incidencias
                 .Include(i => i.Estacion)
+                .Where(i => i.Estado == EstadoIncidencia.Abierta)
                 .OrderByDescending(i => i.FechaReporte)
                 .AsNoTracking()
                 .ToListAsync(ct);
 
-            return View(todas);
+            return View(abiertas);
         }
 
         IReadOnlyList<int> ids;
