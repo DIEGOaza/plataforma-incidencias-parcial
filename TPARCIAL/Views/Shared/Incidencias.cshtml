@@ -8,7 +8,7 @@
     var pieHost = PieHost.Value;
 }
 
-<h1>Incidencias</h1>
+<h1>Incidencias abiertas en tiempo real</h1>
 
 <div id="notificaciones-incidencias" class="my-3" aria-live="polite"></div>
 
@@ -46,6 +46,7 @@
         {
             hubUrl = IncidenciasHub.Ruta,
             evento = IncidenciasHub.EventoIncidencia,
+            estadoUrl = Url.Action("EstadoIncidencias", "Operaciones"),
             pieHost = pieHost.ClienteHabilitado
                 ? new { clusterId = pieHost.ClusterId, apiKey = pieHost.ApiKey, canal = pieHost.Canal }
                 : null

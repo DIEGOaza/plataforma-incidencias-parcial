@@ -19,4 +19,25 @@ public class OperacionesController(ApplicationDbContext context) : Controller
 
         return View(incidencias);
     }
+
+    // GET: /Operaciones/EstadoIncidencias
+    // Estado vigente del listado; el cliente lo consulta al reconectar el WebSocket.
+    [HttpGet]
+    public async Task<IActionResult> EstadoIncidencias(CancellationToken ct)
+    {
+        var incidencias = await context.Incidencias
+            .AsNoTracking()
+            .OrderByDescending(i => i.FechaReporte)
+            .Select(i => new
+            {
+                i.Id,
+                Estacion = i.Estacion!.Nombre,
+                i.Descripcion,
+                Estado = i.Estado.ToString(),
+                i.FechaReporte
+            })
+            .ToListAsync(ct);
+
+        return Json(incidencias);
+    }
 }

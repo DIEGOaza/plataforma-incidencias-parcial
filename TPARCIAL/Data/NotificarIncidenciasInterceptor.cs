@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using TPARCIAL.Models;
 using TPARCIAL.Services;
@@ -8,15 +7,13 @@ using TPARCIAL.Services;
 namespace TPARCIAL.Data;
 
 /// <summary>
-/// Detecta altas y modificaciones de incidencias al guardar y, una vez confirmado el guardado,
-/// notifica en tiempo real: "nueva", "abierta" (el estado pasó a Abierta) o "actualizada".
+/// Detecta altas y modificaciones de incidencias (p. ej. el cierre) y, solo después de que el estado
+/// quede guardado en la base, publica el evento IncidenciaActualizada con Id y Estado.
 /// Cubre cualquier código que modifique incidencias mediante el DbContext.
 /// </summary>
 public class NotificarIncidenciasInterceptor(INotificadorIncidencias notificador) : SaveChangesInterceptor
 {
-    private sealed record Pendiente(Incidencia Incidencia, string Tipo);
-
-    private static readonly ConditionalWeakTable<DbContext, List<Pendiente>> Pendientes = new();
+    private static readonly ConditionalWeakTable<DbContext, List<Incidencia>> Pendientes = new();
 
     public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
     {
@@ -61,51 +58,25 @@ public class NotificarIncidenciasInterceptor(INotificadorIncidencias notificador
         if (context is null)
             return;
 
-        var eventos = context.ChangeTracker.Entries<Incidencia>()
-            .Select(e => e.State switch
-            {
-                EntityState.Added => new Pendiente(e.Entity, "nueva"),
-                EntityState.Modified when PasoAAbierta(e) => new Pendiente(e.Entity, "abierta"),
-                EntityState.Modified => new Pendiente(e.Entity, "actualizada"),
-                _ => null
-            })
-            .OfType<Pendiente>()
+        var incidencias = context.ChangeTracker.Entries<Incidencia>()
+            .Where(e => e.State is EntityState.Added or EntityState.Modified)
+            .Select(e => e.Entity)
             .ToList();
 
-        if (eventos.Count > 0)
-            Pendientes.AddOrUpdate(context, eventos);
-    }
-
-    private static bool PasoAAbierta(EntityEntry<Incidencia> entry)
-    {
-        var estado = entry.Property(i => i.Estado);
-        return estado.IsModified
-               && estado.CurrentValue == EstadoIncidencia.Abierta
-               && estado.OriginalValue != EstadoIncidencia.Abierta;
+        if (incidencias.Count > 0)
+            Pendientes.AddOrUpdate(context, incidencias);
     }
 
     private async Task NotificarAsync(DbContext? context, CancellationToken ct)
     {
-        if (context is null || !Pendientes.TryGetValue(context, out var eventos))
+        if (context is null || !Pendientes.TryGetValue(context, out var incidencias))
             return;
 
         Pendientes.Remove(context);
 
-        foreach (var (incidencia, tipo) in eventos)
-        {
-            // Tras guardar, una incidencia nueva ya tiene su Id generado.
-            var estacion = incidencia.Estacion?.Nombre
-                           ?? (await context.Set<Estacion>().FindAsync([incidencia.EstacionId], ct))?.Nombre;
-
-            await notificador.NotificarAsync(new IncidenciaNotificacion(
-                Guid.NewGuid(),
-                tipo,
-                incidencia.Id,
-                incidencia.Descripcion,
-                incidencia.Estado.ToString(),
-                estacion,
-                incidencia.FechaReporte), ct);
-        }
+        // Tras guardar, una incidencia nueva ya tiene su Id generado.
+        foreach (var incidencia in incidencias)
+            await notificador.NotificarAsync(new IncidenciaActualizada(incidencia.Id, incidencia.Estado.ToString()), ct);
     }
 
     private static void Descartar(DbContext? context)

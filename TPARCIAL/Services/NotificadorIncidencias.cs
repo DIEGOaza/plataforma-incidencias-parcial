@@ -4,24 +4,16 @@ using TPARCIAL.Hubs;
 
 namespace TPARCIAL.Services;
 
-/// <summary>Evento en tiempo real sobre una incidencia.</summary>
-/// <param name="Tipo">"nueva", "abierta" (su estado pasó a Abierta) o "actualizada".</param>
-public record IncidenciaNotificacion(
-    Guid EventoId,
-    string Tipo,
-    int Id,
-    string Descripcion,
-    string Estado,
-    string? Estacion,
-    DateTime FechaReporte);
+/// <summary>Payload del evento IncidenciaActualizada: únicamente Id y Estado.</summary>
+public record IncidenciaActualizada(int Id, string Estado);
 
 public interface INotificadorIncidencias
 {
-    Task NotificarAsync(IncidenciaNotificacion notificacion, CancellationToken ct = default);
+    Task NotificarAsync(IncidenciaActualizada evento, CancellationToken ct = default);
 }
 
 /// <summary>
-/// Envía las notificaciones a los clientes conectados por SignalR y, si está configurado, también al canal de PieHost.
+/// Publica el evento IncidenciaActualizada en PieHost (si está configurado) y a los clientes conectados por SignalR.
 /// Un fallo al notificar se registra, pero nunca interrumpe la operación que lo originó.
 /// </summary>
 public class NotificadorIncidencias(
@@ -32,17 +24,22 @@ public class NotificadorIncidencias(
 {
     public const string NombreHttpClient = "PieHost";
 
-    public async Task NotificarAsync(IncidenciaNotificacion notificacion, CancellationToken ct = default)
+    public async Task NotificarAsync(IncidenciaActualizada evento, CancellationToken ct = default)
     {
+        await PublicarEnPieHostAsync(evento, ct);
+
         try
         {
-            await hub.Clients.All.SendAsync(IncidenciasHub.EventoIncidencia, notificacion, ct);
+            await hub.Clients.All.SendAsync(IncidenciasHub.EventoIncidencia, evento, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "No se pudo enviar por SignalR la notificación de la incidencia {Id}.", notificacion.Id);
+            logger.LogWarning(ex, "No se pudo enviar por SignalR {Evento} de la incidencia {Id}.", IncidenciasHub.EventoIncidencia, evento.Id);
         }
+    }
 
+    private async Task PublicarEnPieHostAsync(IncidenciaActualizada evento, CancellationToken ct)
+    {
         var pieHost = pieHostOptions.Value;
         if (!pieHost.PublicacionHabilitada)
             return;
@@ -57,16 +54,19 @@ public class NotificadorIncidencias(
                     key = pieHost.ApiKey,
                     secret = pieHost.ApiSecret,
                     channelId = pieHost.Canal,
-                    message = notificacion
+                    // Formato {event, data} de PieSocket: el cliente filtra por el nombre del evento.
+                    message = new { @event = IncidenciasHub.EventoIncidencia, data = evento }
                 },
                 ct);
 
-            if (!respuesta.IsSuccessStatusCode)
-                logger.LogWarning("PieHost respondió {Status} al publicar la incidencia {Id}.", (int)respuesta.StatusCode, notificacion.Id);
+            if (respuesta.IsSuccessStatusCode)
+                logger.LogInformation("Publicado {Evento} en PieHost: Id={Id}, Estado={Estado}.", IncidenciasHub.EventoIncidencia, evento.Id, evento.Estado);
+            else
+                logger.LogWarning("PieHost respondió {Status} al publicar la incidencia {Id}.", (int)respuesta.StatusCode, evento.Id);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "No se pudo publicar en PieHost la incidencia {Id}.", notificacion.Id);
+            logger.LogWarning(ex, "No se pudo publicar en PieHost la incidencia {Id}.", evento.Id);
         }
     }
 }

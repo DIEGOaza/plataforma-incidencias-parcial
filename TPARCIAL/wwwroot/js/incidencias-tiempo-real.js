@@ -1,5 +1,5 @@
-// Recibe en tiempo real los eventos de incidencias (SignalR y, si está configurado, PieHost)
-// y actualiza la tabla y muestra un aviso sin recargar la página.
+// Recibe en tiempo real el evento IncidenciaActualizada ({ id, estado }) por PieHost y/o SignalR,
+// actualiza la tabla sin recargar la página y, al reconectar, vuelve a consultar el estado vigente.
 (function () {
     "use strict";
 
@@ -9,14 +9,8 @@
     const sinIncidencias = document.getElementById("sin-incidencias");
     const avisos = document.getElementById("notificaciones-incidencias");
 
-    // Un mismo evento puede llegar por SignalR y por PieHost: se procesa una sola vez.
-    const eventosProcesados = new Set();
-
-    const textos = {
-        nueva: "Nueva incidencia registrada",
-        abierta: "Incidencia marcada como Abierta",
-        actualizada: "Incidencia actualizada"
-    };
+    // Un mismo evento puede llegar por PieHost y por SignalR: se avisa una sola vez.
+    const ultimosAvisos = new Map();
 
     function formatearFecha(valor) {
         const fecha = new Date(valor);
@@ -25,43 +19,16 @@
         return `${dos(fecha.getDate())}/${dos(fecha.getMonth() + 1)}/${fecha.getFullYear()} ${dos(fecha.getHours())}:${dos(fecha.getMinutes())}`;
     }
 
-    function crearCelda(campo) {
-        const td = document.createElement("td");
-        td.dataset.campo = campo;
-        return td;
-    }
-
-    function actualizarTabla(n) {
-        let fila = cuerpo.querySelector(`tr[data-incidencia-id="${Number(n.id)}"]`);
-        if (!fila) {
-            fila = document.createElement("tr");
-            fila.dataset.incidenciaId = n.id;
-            ["estacion", "descripcion", "estado", "fecha"].forEach(c => fila.appendChild(crearCelda(c)));
-            cuerpo.prepend(fila);
-        }
-
-        // textContent evita inyectar HTML recibido del servidor.
-        fila.querySelector('[data-campo="estacion"]').textContent = n.estacion ?? "";
-        fila.querySelector('[data-campo="descripcion"]').textContent = n.descripcion ?? "";
-        fila.querySelector('[data-campo="estado"]').textContent = n.estado ?? "";
-        fila.querySelector('[data-campo="fecha"]').textContent = formatearFecha(n.fechaReporte);
-
+    function resaltar(fila) {
         fila.classList.add("table-warning");
         setTimeout(() => fila.classList.remove("table-warning"), 4000);
-
-        tabla.classList.remove("d-none");
-        sinIncidencias.classList.add("d-none");
     }
 
-    function mostrarAviso(n) {
+    function mostrarAviso(texto) {
         const aviso = document.createElement("div");
         aviso.className = "alert alert-info alert-dismissible fade show";
         aviso.setAttribute("role", "status");
-
-        const titulo = document.createElement("strong");
-        titulo.textContent = (textos[n.tipo] ?? "Cambio en incidencia") + ": ";
-        aviso.appendChild(titulo);
-        aviso.appendChild(document.createTextNode(`${n.descripcion ?? ""}${n.estacion ? " (" + n.estacion + ")" : ""}`));
+        aviso.appendChild(document.createTextNode(texto));
 
         const cerrar = document.createElement("button");
         cerrar.type = "button";
@@ -74,14 +41,58 @@
         setTimeout(() => aviso.remove(), 8000);
     }
 
-    function procesar(n) {
-        if (!n || n.id == null) return;
-        if (n.eventoId) {
-            if (eventosProcesados.has(n.eventoId)) return;
-            eventosProcesados.add(n.eventoId);
+    // Reconstruye la tabla con el estado vigente del servidor (textContent evita inyectar HTML).
+    function pintarListado(incidencias) {
+        cuerpo.replaceChildren(...incidencias.map(i => {
+            const fila = document.createElement("tr");
+            fila.dataset.incidenciaId = i.id;
+            [["estacion", i.estacion], ["descripcion", i.descripcion], ["estado", i.estado], ["fecha", formatearFecha(i.fechaReporte)]]
+                .forEach(([campo, valor]) => {
+                    const td = document.createElement("td");
+                    td.dataset.campo = campo;
+                    td.textContent = valor ?? "";
+                    fila.appendChild(td);
+                });
+            return fila;
+        }));
+
+        tabla.classList.toggle("d-none", incidencias.length === 0);
+        sinIncidencias.classList.toggle("d-none", incidencias.length > 0);
+    }
+
+    let refrescando = null;
+    function refrescarEstado() {
+        // Si ya hay una consulta en curso, se reutiliza.
+        refrescando ??= fetch(config.estadoUrl, { credentials: "same-origin", headers: { Accept: "application/json" } })
+            .then(r => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                return r.json();
+            })
+            .then(pintarListado)
+            .catch(err => console.warn("No se pudo consultar el estado vigente de las incidencias.", err))
+            .finally(() => { refrescando = null; });
+        return refrescando;
+    }
+
+    // Evento IncidenciaActualizada: { id, estado }
+    function procesar(evento) {
+        if (!evento || evento.id == null) return;
+
+        const fila = cuerpo.querySelector(`tr[data-incidencia-id="${Number(evento.id)}"]`);
+        if (!fila) {
+            // Incidencia que la pantalla aún no conoce: se trae el listado vigente.
+            refrescarEstado();
+        } else {
+            fila.querySelector('[data-campo="estado"]').textContent = evento.estado ?? "";
+            resaltar(fila);
         }
-        actualizarTabla(n);
-        mostrarAviso(n);
+
+        const clave = `${evento.id}:${evento.estado}`;
+        const ahora = Date.now();
+        if (ahora - (ultimosAvisos.get(clave) ?? 0) > 3000) {
+            ultimosAvisos.set(clave, ahora);
+            mostrarAviso(`Incidencia #${evento.id} actualizada: ${evento.estado ?? ""}`);
+        }
     }
 
     // --- SignalR (WebSockets con reconexión automática) ---
@@ -91,27 +102,37 @@
         .build();
 
     conexion.on(config.evento, procesar);
+    // Al recuperar la conexión se pudieron perder eventos: se consulta el estado vigente.
+    conexion.onreconnected(() => refrescarEstado());
 
-    (function iniciar() {
-        conexion.start().catch(err => {
-            console.warn("SignalR: no se pudo conectar, reintentando en 5 s.", err);
-            setTimeout(iniciar, 5000);
-        });
-    })();
+    (function iniciar(esReintento) {
+        conexion.start()
+            .then(() => { if (esReintento) refrescarEstado(); })
+            .catch(err => {
+                console.warn("SignalR: no se pudo conectar, reintentando en 5 s.", err);
+                setTimeout(() => iniciar(true), 5000);
+            });
+    })(false);
 
-    // --- PieHost (opcional): WebSocket directo al canal con la ApiKey pública ---
+    // --- PieHost: WebSocket al canal configurado, con la ApiKey pública ---
     if (config.pieHost) {
         const { clusterId, apiKey, canal } = config.pieHost;
         const url = `wss://${encodeURIComponent(clusterId)}.piesocket.com/v3/${encodeURIComponent(canal)}?api_key=${encodeURIComponent(apiKey)}`;
+        let yaConecto = false;
 
         (function conectarPieHost(espera) {
             const ws = new WebSocket(url);
-            ws.onopen = () => { espera = 1000; };
+            ws.onopen = () => {
+                espera = 1000;
+                // Reconexión: consultar el estado vigente por si se perdieron eventos.
+                if (yaConecto) refrescarEstado();
+                yaConecto = true;
+            };
             ws.onmessage = e => {
                 try {
                     let datos = JSON.parse(e.data);
                     if (typeof datos === "string") datos = JSON.parse(datos);
-                    procesar(datos.message ?? datos);
+                    if (datos?.event === config.evento) procesar(datos.data);
                 } catch {
                     // Mensajes que no son eventos de incidencia (p. ej. avisos del sistema) se ignoran.
                 }
