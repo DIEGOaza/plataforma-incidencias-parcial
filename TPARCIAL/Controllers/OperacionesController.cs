@@ -99,4 +99,20 @@ public class OperacionesController(
 
         return Json(incidencias);
     }
+
+    // Proyección sin ciclos (Estacion -> Incidencias) para poder serializarla en Redis.
+    private Task<List<Incidencia>> CargarListadoAsync(CancellationToken ct) =>
+        context.Incidencias
+            .AsNoTracking()
+            .OrderByDescending(i => i.FechaReporte)
+            .Select(i => new Incidencia
+            {
+                Id = i.Id,
+                Descripcion = i.Descripcion,
+                Estado = i.Estado,
+                FechaReporte = i.FechaReporte,
+                EstacionId = i.EstacionId,
+                Estacion = new Estacion { Id = i.Estacion!.Id, Nombre = i.Estacion.Nombre }
+            })
+            .ToListAsync(ct);
 }
