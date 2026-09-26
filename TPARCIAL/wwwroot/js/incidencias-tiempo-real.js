@@ -86,6 +86,26 @@
         sinIncidencias.classList.toggle("d-none", incidencias.length > 0);
     }
 
+    function actualizarVacio() {
+        const hayFilas = cuerpo.querySelector("tr") !== null;
+        tabla.classList.toggle("d-none", !hayFilas);
+        sinIncidencias.classList.toggle("d-none", hayFilas);
+    }
+
+    // Con una búsqueda activa solo se quitan las filas que ya no están abiertas
+    // (no se reemplazan los resultados de Algolia por el listado general).
+    function aplicarEstadoVigente(abiertas) {
+        if (!config.busquedaActiva) {
+            pintarListado(abiertas);
+            return;
+        }
+        const idsAbiertas = new Set(abiertas.map(i => String(i.id)));
+        cuerpo.querySelectorAll("tr[data-incidencia-id]").forEach(fila => {
+            if (!idsAbiertas.has(fila.dataset.incidenciaId)) fila.remove();
+        });
+        actualizarVacio();
+    }
+
     let refrescando = null;
     function refrescarEstado() {
         // Si ya hay una consulta en curso, se reutiliza.
@@ -94,7 +114,7 @@
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
                 return r.json();
             })
-            .then(pintarListado)
+            .then(aplicarEstadoVigente)
             .catch(err => console.warn("No se pudo consultar el estado vigente de las incidencias.", err))
             .finally(() => { refrescando = null; });
         return refrescando;
@@ -105,11 +125,15 @@
         if (!evento || evento.id == null) return;
 
         const fila = cuerpo.querySelector(`tr[data-incidencia-id="${Number(evento.id)}"]`);
-        if (!fila) {
-            // Incidencia que la pantalla aún no conoce: se trae el listado vigente.
+        if (evento.estado !== "Abierta") {
+            // El listado solo muestra incidencias abiertas: la cerrada se quita sin recargar.
+            if (fila) fila.remove();
+            actualizarVacio();
+        } else if (!fila) {
+            // Incidencia abierta que la pantalla aún no conoce: se trae el estado vigente.
             refrescarEstado();
         } else {
-            fila.querySelector('[data-campo="estado"]').textContent = evento.estado ?? "";
+            fila.querySelector('[data-campo="estado"]').textContent = evento.estado;
             const acciones = fila.querySelector('[data-campo="acciones"]');
             if (acciones) pintarAcciones(acciones, evento.id, evento.estado);
             resaltar(fila);
