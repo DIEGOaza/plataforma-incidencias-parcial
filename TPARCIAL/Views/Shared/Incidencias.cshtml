@@ -61,7 +61,7 @@
             estadoUrl = Url.Action("EstadoIncidencias", "Operaciones"),
             cerrarUrl = Url.Action("Cerrar", "Operaciones"),
             pieHost = pieHost.ClienteHabilitado
-                ? new { clusterId = pieHost.ClusterId, apiKey = pieHost.ApiKey, canal = pieHost.Canal }
+                ? new { url = pieHost.UrlCliente }
                 : null
         })
     </script>

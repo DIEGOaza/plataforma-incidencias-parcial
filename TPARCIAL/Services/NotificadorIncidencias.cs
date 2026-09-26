@@ -53,7 +53,7 @@ public class NotificadorIncidencias(
                 {
                     key = pieHost.ApiKey,
                     secret = pieHost.ApiSecret,
-                    channelId = pieHost.Canal,
+                    channelId = pieHost.CanalEfectivo,
                     // Formato {event, data} de PieSocket: el cliente filtra por el nombre del evento.
                     message = new { @event = IncidenciasHub.EventoIncidencia, data = evento }
                 },

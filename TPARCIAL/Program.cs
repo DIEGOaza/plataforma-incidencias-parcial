@@ -8,9 +8,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
-builder.Services.AddDbContext<ApplicationDbContext>((sp, options) =>
-    options.UseSqlite(connectionString)
-           .AddInterceptors(sp.GetRequiredService<NotificarIncidenciasInterceptor>()));
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlite(connectionString));
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
 builder.Services.AddDefaultIdentity<IdentityUser>(options => options.SignIn.RequireConfirmedAccount = true)
@@ -23,7 +22,6 @@ builder.Services.AddSignalR();
 builder.Services.Configure<PieHostOptions>(builder.Configuration.GetSection(PieHostOptions.Seccion));
 builder.Services.AddHttpClient(NotificadorIncidencias.NombreHttpClient, c => c.Timeout = TimeSpan.FromSeconds(5));
 builder.Services.AddSingleton<INotificadorIncidencias, NotificadorIncidencias>();
-builder.Services.AddSingleton<NotificarIncidenciasInterceptor>();
 
 var app = builder.Build();
 

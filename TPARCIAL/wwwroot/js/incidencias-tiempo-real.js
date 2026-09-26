@@ -142,10 +142,9 @@
             });
     })(false);
 
-    // --- PieHost: WebSocket al canal configurado, con la ApiKey pública ---
+    // --- PieHost: WebSocket al canal configurado (WebSocketUrl, solo con la ApiKey pública) ---
     if (config.pieHost) {
-        const { clusterId, apiKey, canal } = config.pieHost;
-        const url = `wss://${encodeURIComponent(clusterId)}.piesocket.com/v3/${encodeURIComponent(canal)}?api_key=${encodeURIComponent(apiKey)}`;
+        const url = config.pieHost.url;
         let yaConecto = false;
 
         (function conectarPieHost(espera) {

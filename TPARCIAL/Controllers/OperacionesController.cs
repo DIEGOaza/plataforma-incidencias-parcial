@@ -3,11 +3,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TPARCIAL.Data;
 using TPARCIAL.Models;
+using TPARCIAL.Services;
 
 namespace TPARCIAL.Controllers;
 
 [Authorize]
-public class OperacionesController(ApplicationDbContext context) : Controller
+public class OperacionesController(ApplicationDbContext context, INotificadorIncidencias notificador) : Controller
 {
     // GET: /Operaciones/Incidencias
     public async Task<IActionResult> Incidencias()
@@ -22,8 +23,6 @@ public class OperacionesController(ApplicationDbContext context) : Controller
     }
 
     // POST: /Operaciones/Cerrar/5
-    // Primero se guarda el estado; al confirmarse el guardado, NotificarIncidenciasInterceptor
-    // publica IncidenciaActualizada { Id, Estado } en PieHost y SignalR.
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Cerrar(int id, CancellationToken ct)
@@ -34,8 +33,13 @@ public class OperacionesController(ApplicationDbContext context) : Controller
 
         if (incidencia.Estado != EstadoIncidencia.Cerrada)
         {
+            // 1. Guardar primero el estado en la base.
             incidencia.Estado = EstadoIncidencia.Cerrada;
             await context.SaveChangesAsync(ct);
+
+            // 2. Publicar IncidenciaActualizada { Id, Estado } en PieHost (y SignalR).
+            //    Sin el token de la petición: el cierre ya está guardado y el evento debe salir igualmente.
+            await notificador.NotificarAsync(new IncidenciaActualizada(incidencia.Id, incidencia.Estado.ToString()));
         }
 
         return RedirectToAction(nameof(Incidencias));
