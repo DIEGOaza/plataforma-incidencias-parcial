@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TPARCIAL.Data;
+using TPARCIAL.Models;
 
 namespace TPARCIAL.Controllers;
 
@@ -18,6 +19,26 @@ public class OperacionesController(ApplicationDbContext context) : Controller
             .ToListAsync();
 
         return View(incidencias);
+    }
+
+    // POST: /Operaciones/Cerrar/5
+    // Primero se guarda el estado; al confirmarse el guardado, NotificarIncidenciasInterceptor
+    // publica IncidenciaActualizada { Id, Estado } en PieHost y SignalR.
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Cerrar(int id, CancellationToken ct)
+    {
+        var incidencia = await context.Incidencias.FindAsync([id], ct);
+        if (incidencia is null)
+            return NotFound();
+
+        if (incidencia.Estado != EstadoIncidencia.Cerrada)
+        {
+            incidencia.Estado = EstadoIncidencia.Cerrada;
+            await context.SaveChangesAsync(ct);
+        }
+
+        return RedirectToAction(nameof(Incidencias));
     }
 
     // GET: /Operaciones/EstadoIncidencias

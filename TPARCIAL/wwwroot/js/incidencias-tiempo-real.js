@@ -41,6 +41,28 @@
         setTimeout(() => aviso.remove(), 8000);
     }
 
+    // Botón "Cerrar" (formulario POST con token antiforgery), solo para incidencias Abiertas.
+    function pintarAcciones(celda, id, estado) {
+        celda.replaceChildren();
+        if (estado !== "Abierta") return;
+
+        const form = document.createElement("form");
+        form.method = "post";
+        form.action = `${config.cerrarUrl}/${encodeURIComponent(id)}`;
+        form.className = "d-inline";
+
+        const token = document.querySelector('#antiforgery-cerrar input[name="__RequestVerificationToken"]');
+        if (token) form.appendChild(token.cloneNode());
+
+        const boton = document.createElement("button");
+        boton.type = "submit";
+        boton.className = "btn btn-sm btn-outline-danger";
+        boton.textContent = "Cerrar";
+        form.appendChild(boton);
+
+        celda.appendChild(form);
+    }
+
     // Reconstruye la tabla con el estado vigente del servidor (textContent evita inyectar HTML).
     function pintarListado(incidencias) {
         cuerpo.replaceChildren(...incidencias.map(i => {
@@ -53,6 +75,10 @@
                     td.textContent = valor ?? "";
                     fila.appendChild(td);
                 });
+            const acciones = document.createElement("td");
+            acciones.dataset.campo = "acciones";
+            pintarAcciones(acciones, i.id, i.estado);
+            fila.appendChild(acciones);
             return fila;
         }));
 
@@ -84,6 +110,8 @@
             refrescarEstado();
         } else {
             fila.querySelector('[data-campo="estado"]').textContent = evento.estado ?? "";
+            const acciones = fila.querySelector('[data-campo="acciones"]');
+            if (acciones) pintarAcciones(acciones, evento.id, evento.estado);
             resaltar(fila);
         }
 
