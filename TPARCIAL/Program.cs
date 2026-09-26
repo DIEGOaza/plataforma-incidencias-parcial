@@ -66,4 +66,6 @@ app.MapControllerRoute(
 app.MapRazorPages()
    .WithStaticAssets();
 
+app.MapHub<IncidenciasHub>(IncidenciasHub.Ruta);
+
 app.Run();
